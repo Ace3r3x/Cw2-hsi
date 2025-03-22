@@ -1,109 +1,135 @@
-@ This ARM Assembler code should implement a matching function, for use in the MasterMind program, as
-@ described in the CW2 specification. It should produce as output 2 numbers, the first for the
-@ exact matches (peg of right colour and in right position) and approximate matches (peg of right
-@ color but not in right position). Make sure to count each peg just once!
-	
-@ Example (first sequence is secret, second sequence is guess):
-@ 1 2 1
-@ 3 1 3 ==> 0 1
-@ You can return the result as a pointer to two numbers, or two values
-@ encoded within one number
-@
-@ -----------------------------------------------------------------------------
+/*
+ * ARM Assembly implementation of the matching algorithm for MasterMind
+ * For F28HS Coursework 2
+ *
+ * Calculates exact matches (same color, same position) and
+ * approximate matches (same color, different position)
+ */
 
-.text
-@ this is the matching fct that should be called from the C part of the CW	
-.global         matches
-@ use the name `main` here, for standalone testing of the assembler code
-@ when integrating this code into `master-mind.c`, choose a different name
-@ otw there will be a clash with the main function in the C code
-.global         main
-main: 
-	LDR  R2, =secret	@ pointer to secret sequence
-	LDR  R3, =guess		@ pointer to guess sequence
+.global matchesASM
 
-	@ you probably need to initialise more values here
+/*
+ * Function: matchesASM
+ * Parameters:
+ *   r0 - pointer to secret array
+ *   r1 - pointer to guess array
+ *   r2 - length of arrays
+ *   r3 - pointer to store exact matches
+ *   [sp] - pointer to store approximate matches
+ */
+matchesASM:
+    push {r4-r11, lr}       @ Save registers
 
-	@ ... COMPLETE THE CODE BY ADDING YOUR CODE HERE, you should use sub-routines to structure your code
+    @ Initialize counters
+    mov r4, #0              @ r4 = exact matches
+    mov r5, #0              @ r5 = approximate matches
+    
+    @ Create temporary arrays on stack for marking used elements
+    sub sp, sp, r2, lsl #2  @ Allocate space for secret_used array (length * 4 bytes)
+    mov r6, sp              @ r6 = secret_used array
+    sub sp, sp, r2, lsl #2  @ Allocate space for guess_used array (length * 4 bytes)
+    mov r7, sp              @ r7 = guess_used array
+    
+    @ Initialize used arrays to 0
+    mov r8, #0              @ Loop counter
+init_loop:
+    cmp r8, r2
+    beq init_done
+    str #0, [r6, r8, lsl #2]
+    str #0, [r7, r8, lsl #2]
+    add r8, r8, #1
+    b init_loop
+init_done:
 
-exit:	@MOV	 R0, R4		@ load result to output register
-	MOV 	 R7, #1		@ load system call code
-	SWI 	 0		@ return this value
+    @ First pass: Find exact matches
+    mov r8, #0              @ Loop counter
+exact_loop:
+    cmp r8, r2
+    beq exact_done
+    
+    @ Load secret[i] and guess[i]
+    ldr r9, [r0, r8, lsl #2]
+    ldr r10, [r1, r8, lsl #2]
+    
+    @ Compare for exact match
+    cmp r9, r10
+    bne not_exact
+    
+    @ Mark as used
+    mov r11, #1
+    str r11, [r6, r8, lsl #2]
+    str r11, [r7, r8, lsl #2]
+    
+    @ Increment exact matches
+    add r4, r4, #1
+    
+not_exact:
+    add r8, r8, #1
+    b exact_loop
+exact_done:
 
-@ -----------------------------------------------------------------------------
-@ sub-routines
+    @ Second pass: Find approximate matches
+    mov r8, #0              @ Loop counter for secret
+approx_outer_loop:
+    cmp r8, r2
+    beq approx_done
+    
+    @ Check if secret[i] is already used
+    ldr r9, [r6, r8, lsl #2]
+    cmp r9, #1
+    beq next_secret
+    
+    @ Load secret[i]
+    ldr r9, [r0, r8, lsl #2]
+    
+    @ Inner loop: check against all guess elements
+    mov r10, #0             @ Loop counter for guess
+approx_inner_loop:
+    cmp r10, r2
+    beq next_secret
+    
+    @ Check if guess[j] is already used
+    ldr r11, [r7, r10, lsl #2]
+    cmp r11, #1
+    beq next_guess
+    
+    @ Load guess[j]
+    ldr r11, [r1, r10, lsl #2]
+    
+    @ Compare for approximate match
+    cmp r9, r11
+    bne next_guess
+    
+    @ Mark as used
+    mov r11, #1
+    str r11, [r6, r8, lsl #2]
+    str r11, [r7, r10, lsl #2]
+    
+    @ Increment approximate matches
+    add r5, r5, #1
+    
+    @ Break inner loop after finding a match
+    b next_secret
+    
+next_guess:
+    add r10, r10, #1
+    b approx_inner_loop
+    
+next_secret:
+    add r8, r8, #1
+    b approx_outer_loop
+approx_done:
 
-@ this is the matching fct that should be callable from C	
-matches:			@ Input: R0, R1 ... ptr to int arrays to match ; Output: R0 ... exact matches (10s) and approx matches (1s) of base COLORS
-	@ COMPLETE THE CODE HERE
-
-@ show the sequence in R0, use a call to printf in libc to do the printing, a useful function when debugging 
-showseq: 			@ Input: R0 = pointer to a sequence of 3 int values to show
-	@ COMPLETE THE CODE HERE (OPTIONAL)
-	
-	
-@ =============================================================================
-
-.data
-
-@ constants about the basic setup of the game: length of sequence and number of colors	
-.equ LEN, 3
-.equ COL, 3
-.equ NAN1, 8
-.equ NAN2, 9
-
-@ a format string for printf that can be used in showseq
-f4str: .asciz "Seq:    %d %d %d\n"
-
-@ a memory location, initialised as 0, you may need this in the matching fct
-n: .word 0x00
-	
-@ INPUT DATA for the matching function
-.align 4
-secret: .word 1 
-	.word 2 
-	.word 1 
-
-.align 4
-guess:	.word 3 
-	.word 1 
-	.word 3 
-
-@ Not strictly necessary, but can be used to test the result	
-@ Expect Answer: 0 1
-.align 4
-expect: .byte 0
-	.byte 1
-
-.align 4
-secret1: .word 1 
-	 .word 2 
-	 .word 3 
-
-.align 4
-guess1:	.word 1 
-	.word 1 
-	.word 2 
-
-@ Not strictly necessary, but can be used to test the result	
-@ Expect Answer: 1 1
-.align 4
-expect1: .byte 1
-	 .byte 1
-
-.align 4
-secret2: .word 2 
-	 .word 3
-	 .word 2 
-
-.align 4
-guess2:	.word 3 
-	.word 3 
-	.word 1 
-
-@ Not strictly necessary, but can be used to test the result	
-@ Expect Answer: 1 0
-.align 4
-expect2: .byte 1
-	 .byte 0
-
+    @ Store exact matches result
+    str r4, [r3]
+    
+    @ Load pointer to approximate matches from stack
+    ldr r3, [sp, #(r2, lsl #3)]  @ Offset by 2*length*4 + original sp
+    
+    @ Store approximate matches result
+    str r5, [r3]
+    
+    @ Clean up stack
+    add sp, sp, r2, lsl #3  @ Deallocate both arrays (2*length*4 bytes)
+    
+    pop {r4-r11, pc}        @ Restore registers and return
